@@ -92,6 +92,7 @@ type trigger struct {
 	args []string
 
 	mu  sync.Mutex
+	wg  sync.WaitGroup
 	buf *bytes.Buffer
 }
 
@@ -158,9 +159,17 @@ func (t *trigger) Write(data []byte) (int, error) {
 	defer t.mu.Unlock()
 	nw, err := t.buf.Write(data)
 	if nw != 0 {
-		go t.fire(false)
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			t.fire(false)
+		}()
 	}
 	return nw, err
 }
 
-func (t *trigger) Close() error { t.fire(true); return nil }
+func (t *trigger) Close() error {
+	t.wg.Wait()
+	t.fire(true)
+	return nil
+}
