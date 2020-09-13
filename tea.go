@@ -16,28 +16,29 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"regexp/syntax"
 	"sync"
 )
 
 var (
-	bufLimit    = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
-	doMultiLine = flag.Bool("m", false, "Allow matches to span multiple lines")
+	bufLimit = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
 )
 
 func init() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: %s [options] [regexp command args...]
 
-Copy standard input to standard output. If a regexp and command are
-given, each match of the regexp in the input triggers execution of the
-given command and arguments.
+Copy standard input to standard output. If a trigger consisting of a regexp
+and command are given, each match of the regexp in the input triggers an
+execution of the given command and arguments. Multiple triggers may be set,
+separated by ";;". Note that the separator may need quotation to protect it
+from the shell.
 
-By default, matches are applied line-by-line, as grep.
-With -m, matches may span multiple lines, up to -buf bytes.
-Using -m implicitly sets the m (multiline) and s (dotall) flags on
-the regular expression.
+By default, matches are applied line-by-line, as in grep.
+If a pattern sets the multi-line flag (?m), matches for that trigger may
+span multiple lines, over a buffer of up to -buf bytes.
 
-Regular expression syntax: https://pkg.go.dev/regexp/syntax
+Pattern syntax is as defined by: https://pkg.go.dev/regexp/syntax
 
 Submatches are interpolated into command arguments:
 
@@ -58,51 +59,83 @@ Options:
 func main() {
 	flag.Parse()
 
-	var out io.Writer = os.Stdout
-	if flag.NArg() > 0 {
-		t, err := parseTrigger(flag.Args())
+	out := []io.Writer{os.Stdout}
+	for i, rule := range splitArgs(flag.Args()) {
+		t, err := parseTrigger(rule)
 		if err != nil {
-			log.Fatalf("Parsing trigger: %v", err)
+			log.Fatalf("Parsing trigger %d: %v", i+1, err)
 		}
-		out = io.MultiWriter(os.Stdout, t)
+		out = append(out, t)
 		defer t.Close()
 	}
-
-	_, err := io.Copy(out, bufio.NewReader(os.Stdin))
+	_, err := io.Copy(io.MultiWriter(out...), bufio.NewReader(os.Stdin))
 	if err != nil {
 		log.Printf("Copy failed: %v", err)
 	}
 }
 
+// splitArgs partitions args into candidate trigger groups, separated by ";;"
+// arguments. It returns an empty slice if there are no trigger groups.
+func splitArgs(args []string) [][]string {
+	var cmds [][]string
+	var cur []string
+	for _, arg := range args {
+		if arg == ";;" {
+			cmds = append(cmds, cur)
+			cur = nil
+		} else {
+			cur = append(cur, arg)
+		}
+	}
+	if len(cur) != 0 {
+		cmds = append(cmds, cur)
+	}
+	return cmds
+}
+
+func hasMulti(rt *syntax.Regexp) bool {
+	if rt.Flags != 0 && rt.Flags&syntax.OneLine == 0 {
+		return true
+	}
+	for _, sub := range rt.Sub {
+		if hasMulti(sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseTrigger parses args as a trigger group consisting of a regexp pattern,
+// a command, and optional arguments.
 func parseTrigger(args []string) (*trigger, error) {
-	if len(args) == 1 {
-		return nil, errors.New("missing command")
-	} else if len(args) == 0 {
+	switch len(args) {
+	case 0:
 		return nil, errors.New("missing regexp and command")
+	case 1:
+		return nil, errors.New("missing command")
 	}
 
-	expr := args[0]
-	if *doMultiLine {
-		expr = "(?ms)" + expr
-	}
-
-	re, err := regexp.Compile(args[0])
+	// Parse the pattern and check its flags for multi-line support.
+	rt, err := syntax.Parse(args[0], syntax.Perl) // as regexp.Compile
 	if err != nil {
 		return nil, fmt.Errorf("pattern: %v", err)
 	}
 
+	re := regexp.MustCompile(rt.String())
 	return &trigger{
-		re:   re,
-		cmd:  args[1],
-		args: args[2:],
-		buf:  bytes.NewBuffer(nil),
+		re:    re,
+		cmd:   args[1],
+		args:  args[2:],
+		multi: hasMulti(rt),
+		buf:   bytes.NewBuffer(nil),
 	}, nil
 }
 
 type trigger struct {
-	re   *regexp.Regexp
-	cmd  string
-	args []string
+	re    *regexp.Regexp
+	cmd   string
+	args  []string
+	multi bool
 
 	mu  sync.Mutex
 	wg  sync.WaitGroup
@@ -113,7 +146,7 @@ func (t *trigger) hasMatch(closing bool) ([]int, string, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if *doMultiLine {
+	if t.multi {
 		// Check for a match of the regexp.
 		m := t.re.FindSubmatchIndex(t.buf.Bytes())
 		if m == nil {
