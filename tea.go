@@ -7,7 +7,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,7 +20,8 @@ import (
 )
 
 var (
-	bufLimit = flag.Int("bufsize", 1<<16, "Match buffer size limit (bytes)")
+	bufLimit    = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
+	doMultiLine = flag.Bool("m", false, "Allow matches to span multiple lines")
 )
 
 func init() {
@@ -78,31 +78,57 @@ func parseTrigger(args []string) (*trigger, error) {
 }
 
 type trigger struct {
-	ctx   context.Context
-	re    *regexp.Regexp
-	cmd   string
-	args  []string
-	multi bool
+	re   *regexp.Regexp
+	cmd  string
+	args []string
 
 	mu  sync.Mutex
 	buf *bytes.Buffer
 }
 
-func (t *trigger) fire() {
+func (t *trigger) hasMatch(closing bool) ([]int, string, bool) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	// Check for a match of the regexp.
-	m := t.re.FindSubmatchIndex(t.buf.Bytes())
-	if m == nil {
-		// Discard data in excess of the buffer size limit.
-		if t.buf.Len() > *bufLimit {
-			t.buf.Next(t.buf.Len() - *bufLimit)
+	if *doMultiLine {
+		// Check for a match of the regexp.
+		m := t.re.FindSubmatchIndex(t.buf.Bytes())
+		if m == nil {
+			// Discard data in excess of the buffer size limit.
+			if t.buf.Len() > *bufLimit {
+				t.buf.Next(t.buf.Len() - *bufLimit)
+			}
+			return nil, "", false
 		}
-		t.mu.Unlock()
-		return // no match
+		return m, string(t.buf.Next(m[1])), true
 	}
-	text := string(t.buf.Next(m[1]))
-	t.mu.Unlock()
+
+	// Scan ahead line-by-line, looking for a match.
+	for t.buf.Len() > 0 {
+		var line []byte
+
+		if i := bytes.IndexByte(t.buf.Bytes(), '\n'); i >= 0 {
+			line = t.buf.Next(i + 1)[:i]
+		} else if closing {
+			line = t.buf.Next(t.buf.Len())
+		} else {
+			break
+		}
+		m := t.re.FindSubmatchIndex(line)
+		if m != nil {
+			return m, string(line), true
+		}
+
+		// No match on this line, but see if there are more
+	}
+	return nil, "", false
+}
+
+func (t *trigger) fire(closing bool) {
+	m, text, ok := t.hasMatch(closing)
+	if !ok {
+		return
+	}
 
 	// Substitute any submatches into the command line.
 	var args []string
@@ -123,9 +149,9 @@ func (t *trigger) Write(data []byte) (int, error) {
 	defer t.mu.Unlock()
 	nw, err := t.buf.Write(data)
 	if nw != 0 {
-		go t.fire()
+		go t.fire(false)
 	}
 	return nw, err
 }
 
-func (t *trigger) Close() error { t.fire(); return nil }
+func (t *trigger) Close() error { t.fire(true); return nil }
