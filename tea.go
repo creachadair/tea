@@ -32,6 +32,11 @@ Copy standard input to standard output. If a regexp and command are
 given, each match of the regexp in the input triggers execution of the
 given command and arguments.
 
+By default, matches are applied line-by-line, as grep.
+With -m, matches may span multiple lines, up to -buf bytes.
+Using -m implicitly sets the m (multiline) and s (dotall) flags on
+the regular expression.
+
 Regular expression syntax: https://pkg.go.dev/regexp/syntax
 
 Submatches are interpolated into command arguments:
@@ -70,9 +75,17 @@ func main() {
 }
 
 func parseTrigger(args []string) (*trigger, error) {
-	if len(args) < 2 {
-		return nil, errors.New("missing regexp or command")
+	if len(args) == 1 {
+		return nil, errors.New("missing command")
+	} else if len(args) == 0 {
+		return nil, errors.New("missing regexp and command")
 	}
+
+	expr := args[0]
+	if *doMultiLine {
+		expr = "(?ms)" + expr
+	}
+
 	re, err := regexp.Compile(args[0])
 	if err != nil {
 		return nil, fmt.Errorf("parsing pattern: %v", err)
