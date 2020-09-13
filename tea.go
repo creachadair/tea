@@ -22,7 +22,8 @@ import (
 )
 
 var (
-	bufLimit = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
+	bufLimit  = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
+	doVerbose = flag.Bool("v", false, "Verbose logging")
 )
 
 func init() {
@@ -31,9 +32,13 @@ func init() {
 
 Copy standard input to standard output. If a trigger consisting of a regexp
 and command are given, each match of the regexp in the input triggers an
-execution of the given command and arguments. Multiple triggers may be set,
-separated by ";;". Note that the separator may need quotation to protect it
-from the shell.
+execution of the given command and arguments. Trigger commands are run in
+parallel with input processing, but only one command for a given trigger
+will run at a time -- a subsequent invocation will block until the prior
+invocation is complete.
+
+Multiple triggers may be set, separated by ";;". Note that the separator
+may need quotation to protect it from the shell.
 
 By default, matches are applied line-by-line, as in grep.
 If a pattern sets the multi-line flag (?m), matches for that trigger may
@@ -74,6 +79,12 @@ func main() {
 	_, err := io.Copy(io.MultiWriter(out...), bufio.NewReader(os.Stdin))
 	if err != nil {
 		log.Printf("Copy failed: %v", err)
+	}
+}
+
+func diag(msg string, args ...interface{}) {
+	if *doVerbose {
+		log.Printf(msg, args...)
 	}
 }
 
@@ -127,25 +138,29 @@ func parseTrigger(args []string) (*trigger, error) {
 		return nil, fmt.Errorf("pattern: %v", err)
 	}
 
+	cmd := strings.TrimPrefix(args[1], ":")
 	re := regexp.MustCompile(rt.String())
 	return &trigger{
-		re:    re,
-		cmd:   args[1],
-		args:  args[2:],
-		multi: hasMulti(rt),
-		buf:   bytes.NewBuffer(nil),
+		re:     re,
+		cmd:    cmd,
+		isPipe: cmd != args[1],
+		args:   args[2:],
+		multi:  hasMulti(rt),
+		sync:   make(chan struct{}, 1),
+		buf:    bytes.NewBuffer(nil),
 	}, nil
 }
 
 type trigger struct {
-	re    *regexp.Regexp
-	cmd   string
-	args  []string
-	multi bool
-	wg    sync.WaitGroup
+	re     *regexp.Regexp // the compiled pattern
+	cmd    string         // the name of the command to run
+	isPipe bool           // whether to pipe match text to stdin
+	args   []string       // command arguments (optional)
+	multi  bool           // allow multi-line matches?
+	sync   chan struct{}  // to sequence subprocesses
 
-	mu  sync.Mutex // gates access to the buffer
-	buf *bytes.Buffer
+	mu  sync.Mutex    // gates access to the buffer
+	buf *bytes.Buffer // buffered input for matches
 }
 
 // hasMatch reports whether the buffer currently contains a match for the
@@ -199,17 +214,14 @@ func (t *trigger) fire(m []int, text string) {
 		args = append(args, string(repl))
 	}
 
-	cmd := strings.TrimPrefix(t.cmd, ":")
-	isPipe := cmd != t.cmd
-
-	proc := exec.Command(cmd, args...)
+	proc := exec.Command(t.cmd, args...)
 	proc.Stdout = os.Stderr
 	proc.Stderr = os.Stderr
-	if isPipe {
+	if t.isPipe {
 		proc.Stdin = strings.NewReader(text)
 	}
 	if err := proc.Run(); err != nil {
-		log.Printf("Error: executing %q: %v", cmd, err)
+		log.Printf("Error: executing %q: %v", t.cmd, err)
 	}
 }
 
@@ -231,10 +243,10 @@ func (t *trigger) dispatch(closing bool) bool {
 	if !ok {
 		return false
 	}
-	t.wg.Add(1)
+	t.sync <- struct{}{}
 	go func() {
-		defer t.wg.Done()
 		t.fire(m, text)
+		<-t.sync
 	}()
 	return true
 }
@@ -245,7 +257,7 @@ func (t *trigger) Close() error {
 	t.mu.Lock()
 	for t.dispatch(true) { // closing
 	}
-	defer t.mu.Unlock()
-	t.wg.Wait()
+	t.mu.Unlock()
+	t.sync <- struct{}{} // wait for the last subprocess (if any)
 	return nil
 }
