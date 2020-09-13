@@ -93,6 +93,9 @@ func splitArgs(args []string) [][]string {
 	return cmds
 }
 
+// hasMulti reports whether rt contains any subexpressions that allow
+// multi-line matches. Since the regexp parser lowers top-level flags it is not
+// sufficient to check only the root.
 func hasMulti(rt *syntax.Regexp) bool {
 	if rt.Flags != 0 && rt.Flags&syntax.OneLine == 0 {
 		return true
@@ -136,16 +139,19 @@ type trigger struct {
 	cmd   string
 	args  []string
 	multi bool
+	wg    sync.WaitGroup
 
-	mu  sync.Mutex
-	wg  sync.WaitGroup
+	mu  sync.Mutex // gates access to the buffer
 	buf *bytes.Buffer
 }
 
+// hasMatch reports whether the buffer currently contains a match for the
+// pattern, and if so returns the matching indices and the prefix of the buffer
+// containing the match. The caller must hold t.mu.
+//
+// If closing == true, a line match will be attempted even if the buffer does
+// not contain a newline.
 func (t *trigger) hasMatch(closing bool) ([]int, string, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if t.multi {
 		// Check for a match of the regexp.
 		m := t.re.FindSubmatchIndex(t.buf.Bytes())
@@ -180,12 +186,9 @@ func (t *trigger) hasMatch(closing bool) ([]int, string, bool) {
 	return nil, "", false
 }
 
-func (t *trigger) fire(closing bool) {
-	m, text, ok := t.hasMatch(closing)
-	if !ok {
-		return
-	}
-
+// fire starts a subprocess to handle a pattern match with the given submatch
+// indices m and content text.
+func (t *trigger) fire(m []int, text string) {
 	// Substitute any submatches into the command line.
 	var args []string
 	for _, arg := range t.args {
@@ -200,22 +203,39 @@ func (t *trigger) fire(closing bool) {
 	}
 }
 
+// Write implements the io.Writer interface.  Data are copied into the internal
+// buffer, and if this results in a match the trigger is fired in a goroutine.
 func (t *trigger) Write(data []byte) (int, error) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	nw, err := t.buf.Write(data)
-	if nw != 0 {
-		t.wg.Add(1)
-		go func() {
-			defer t.wg.Done()
-			t.fire(false)
-		}()
+	for t.dispatch(false) { // not closing
 	}
+	t.mu.Unlock()
 	return nw, err
 }
 
+// dispatch reports whether there is a match in the buffer, and if so
+// dispatches a subprocess to handle it.  The caller must hold t.mu.
+func (t *trigger) dispatch(closing bool) bool {
+	m, text, ok := t.hasMatch(closing)
+	if !ok {
+		return false
+	}
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		t.fire(m, text)
+	}()
+	return true
+}
+
+// Close implements the io.Closer interface. It handles any remaining matches
+// in the buffer, then waits for all subprocesses to exit.
 func (t *trigger) Close() error {
+	t.mu.Lock()
+	for t.dispatch(true) { // closing
+	}
+	defer t.mu.Unlock()
 	t.wg.Wait()
-	t.fire(true)
 	return nil
 }
