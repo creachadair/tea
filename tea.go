@@ -34,6 +34,15 @@ given command and arguments.
 
 Regular expression syntax: https://pkg.go.dev/regexp/syntax
 
+Submatches are interpolated into command arguments:
+
+  $0   -- the entire match
+  $1   -- the text of the first parenthesized submatch
+  etc.
+
+If the regular expression uses named capture groups like $(?P<name>...),
+the argument may also use the syntax ${name}.
+
 Options:
 `, filepath.Base(os.Args[0]))
 
