@@ -35,9 +35,10 @@ and command are given, each match of the regexp in the input triggers an
 execution of the given command and arguments. Trigger commands are run in
 parallel with input processing, but only one command for a given trigger
 will run at a time -- a subsequent invocation will block until the prior
-invocation is complete.
+invocation is complete. Output from a trigger command is redirected to
+stderr.
 
-Multiple triggers may be set, separated by ";;". Note that the separator
+Multiple triggers may be set, separated by "--". Note that the separator
 may need quotation to protect it from the shell.
 
 By default, matches are applied line-by-line, as in grep.
@@ -89,13 +90,13 @@ func diag(msg string, args ...interface{}) {
 	}
 }
 
-// splitArgs partitions args into candidate trigger groups, separated by ";;"
+// splitArgs partitions args into candidate trigger groups, separated by "--"
 // arguments. It returns an empty slice if there are no trigger groups.
 func splitArgs(args []string) [][]string {
 	var cmds [][]string
 	var cur []string
 	for _, arg := range args {
-		if arg == ";;" {
+		if arg == "--" {
 			cmds = append(cmds, cur)
 			cur = nil
 		} else {
