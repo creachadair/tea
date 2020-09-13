@@ -88,7 +88,7 @@ func parseTrigger(args []string) (*trigger, error) {
 
 	re, err := regexp.Compile(args[0])
 	if err != nil {
-		return nil, fmt.Errorf("parsing pattern: %v", err)
+		return nil, fmt.Errorf("pattern: %v", err)
 	}
 
 	return &trigger{
