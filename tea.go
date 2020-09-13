@@ -73,6 +73,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Parsing trigger %d: %v", i+1, err)
 		}
+		diag("Trigger %d: pattern=%q command=%s pipe=%v", i+1, t.re, t.cmd, t.isPipe)
 		out = append(out, t)
 		defer t.Close()
 	}
@@ -207,6 +208,8 @@ func (t *trigger) hasMatch(closing bool) ([]int, string, bool) {
 // fire starts a subprocess to handle a pattern match with the given submatch
 // indices m and content text.
 func (t *trigger) fire(m []int, text string) {
+	diag("Match pattern=%q indices=%v text=%q", t.re, m, text)
+
 	// Substitute any submatches into the command line.
 	var args []string
 	for _, arg := range t.args {
