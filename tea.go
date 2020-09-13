@@ -32,6 +32,8 @@ Copy standard input to standard output. If a regexp and command are
 given, each match of the regexp in the input triggers execution of the
 given command and arguments.
 
+Regular expression syntax: https://pkg.go.dev/regexp/syntax
+
 Options:
 `, filepath.Base(os.Args[0]))
 
