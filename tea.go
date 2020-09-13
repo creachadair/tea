@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"regexp/syntax"
+	"strings"
 	"sync"
 )
 
@@ -39,7 +40,6 @@ If a pattern sets the multi-line flag (?m), matches for that trigger may
 span multiple lines, over a buffer of up to -buf bytes.
 
 Pattern syntax is as defined by: https://pkg.go.dev/regexp/syntax
-
 Submatches are interpolated into command arguments:
 
   $0   -- the entire match
@@ -48,6 +48,9 @@ Submatches are interpolated into command arguments:
 
 If the regular expression uses named capture groups like $(?P<name>...),
 the argument may also use the syntax ${name}.
+
+If the command name begins with a colon (":command") the match text
+is piped to the command's standard input.
 
 Options:
 `, filepath.Base(os.Args[0]))
@@ -195,11 +198,18 @@ func (t *trigger) fire(m []int, text string) {
 		repl := t.re.ExpandString(nil, arg, text, m)
 		args = append(args, string(repl))
 	}
-	cmd := exec.Command(t.cmd, args...)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Printf("Error: executing %q: %v", t.cmd, err)
+
+	cmd := strings.TrimPrefix(t.cmd, ":")
+	isPipe := cmd != t.cmd
+
+	proc := exec.Command(cmd, args...)
+	proc.Stdout = os.Stderr
+	proc.Stderr = os.Stderr
+	if isPipe {
+		proc.Stdin = strings.NewReader(text)
+	}
+	if err := proc.Run(); err != nil {
+		log.Printf("Error: executing %q: %v", cmd, err)
 	}
 }
 
