@@ -32,14 +32,14 @@ func init() {
 
 Copy standard input to standard output. If a trigger consisting of a regexp
 and command are given, each match of the regexp in the input triggers an
-execution of the given command and arguments. Trigger commands are run in
-parallel with input processing, but only one command for a given trigger
-will run at a time -- a subsequent invocation will block until the prior
-invocation is complete. Output from a trigger command is redirected to
-stderr.
+execution of the given command and arguments.
 
-Multiple triggers may be set, separated by "--". Note that the separator
-may need quotation to protect it from the shell.
+Trigger commands are run in parallel with input processing, but only one
+command for a given trigger will run at a time; a subsequent invocation will
+block until the prior invocation is complete. Output from a trigger command
+is redirected to stderr.
+
+Multiple triggers may be provided, separated by "--".
 
 By default, matches are applied line-by-line, as in grep.
 If a pattern sets the multi-line flag (?m), matches for that trigger may
