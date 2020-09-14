@@ -22,8 +22,11 @@ import (
 )
 
 var (
-	bufLimit  = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
-	doVerbose = flag.Bool("v", false, "Verbose logging")
+	bufLimit   = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
+	doVerbose  = flag.Bool("v", false, "Verbose logging")
+	cmdOutFile = flag.String("cout", "", "Write command output to this file")
+
+	cmdOutput = os.Stderr
 )
 
 func init() {
@@ -37,7 +40,7 @@ execution of the given command and arguments.
 Trigger commands are run in parallel with input processing, but only one
 command for a given trigger will run at a time; a subsequent invocation will
 block until the prior invocation is complete. Output from a trigger command
-is redirected to stderr.
+is redirected to stderr unless -cout is set.
 
 Multiple triggers may be provided, separated by "--".
 
@@ -67,6 +70,19 @@ Options:
 
 func main() {
 	flag.Parse()
+
+	if *cmdOutFile != "" {
+		f, err := os.OpenFile(*cmdOutFile, os.O_WRONLY|os.O_CREATE, 0600)
+		if err != nil {
+			log.Fatalf("Command output: %v", err)
+		}
+		cmdOutput = f
+		defer func() {
+			if err := f.Close(); err != nil {
+				log.Printf("Closing command output: %v", err)
+			}
+		}()
+	}
 
 	out := []io.Writer{os.Stdout}
 	for i, rule := range splitArgs(flag.Args()) {
@@ -218,7 +234,7 @@ func (t *trigger) fire(m []int, text string) {
 	}
 
 	proc := exec.Command(t.cmd, args...)
-	proc.Stdout = os.Stderr
+	proc.Stdout = cmdOutput
 	proc.Stderr = os.Stderr
 	if t.isPipe {
 		proc.Stdin = strings.NewReader(text)
