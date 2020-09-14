@@ -19,6 +19,8 @@ import (
 	"regexp/syntax"
 	"strings"
 	"sync"
+
+	"bitbucket.org/creachadair/shell"
 )
 
 var (
@@ -232,6 +234,7 @@ func (t *trigger) fire(m []int, text string) {
 		repl := t.re.ExpandString(nil, arg, text, m)
 		args = append(args, string(repl))
 	}
+	diag("Running command: %s %s", t.cmd, shell.Join(args))
 
 	proc := exec.Command(t.cmd, args...)
 	proc.Stdout = cmdOutput
