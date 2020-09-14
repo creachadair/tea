@@ -13,6 +13,7 @@ certain interesting patterns, e.g.,
 
 ```shell
 bundle exec jekyll serve |
-  tea 'Regenerating:' say "Rebuilding your site" \
-   -- '\bdone in (\d+\.\d)\d* seconds' say 'Build complete after $1 seconds'
+   tea \
+    -- 'Regenerating:' say "Rebuilding your site" \
+    -- '\bdone in (\d+\.\d)\d* seconds' say 'Build complete after $1 seconds'
 ```
