@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	bufLimit   = flag.Int("buf", 1<<16, "Match buffer size limit (bytes)")
+	bufLimit   = flag.Int("buf", 1<<16, "Match buffer size limit in bytes")
 	doVerbose  = flag.Bool("v", false, "Verbose logging")
 	cmdOutFile = flag.String("cout", "", "Write command output to this file")
 
