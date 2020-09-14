@@ -74,7 +74,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Parsing trigger %d: %v", i+1, err)
 		}
-		diag("Trigger %d: pattern=%q command=%s pipe=%v", i+1, t.re, t.cmd, t.isPipe)
+		diag("Trigger %d: pattern=%q command=%s line=%v pipe=%v", i+1, t.re, t.cmd, !t.multi, t.isPipe)
 		out = append(out, t)
 		defer t.Close()
 	}
