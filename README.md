@@ -10,10 +10,15 @@ that it can execute an external program in response to matches on the input.
 This can be useful for watching log output from a long-running program for
 certain interesting patterns, e.g.,
 
-
 ```shell
 bundle exec jekyll serve |
    tea \
     -- 'Regenerating:' say "Rebuilding your site" \
     -- '\bdone in (\d+\.\d)\d* seconds' say 'Build complete after $1 seconds'
+```
+
+## Installation
+
+```shell
+(cd "${TMPDIR:-/tmp}" ; go get github.com/creachadair/tea)
 ```
