@@ -141,9 +141,8 @@ func parseTrigger(args []string) (*trigger, error) {
 	}
 
 	cmd := strings.TrimPrefix(args[1], ":")
-	re := regexp.MustCompile(rt.String())
 	return &trigger{
-		re:     re,
+		re:     regexp.MustCompile(rt.String()),
 		cmd:    cmd,
 		isPipe: cmd != args[1],
 		args:   args[2:],
