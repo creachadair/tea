@@ -19,5 +19,5 @@ bundle exec jekyll serve |
 ## Installation
 
 ```shell
-(cd "${TMPDIR:-/tmp}" ; go get github.com/creachadair/tea)
+go install github.com/creachadair/tea@latest
 ```
