@@ -1,5 +1,5 @@
 module github.com/creachadair/tea
 
-go 1.20
+go 1.22
 
 require bitbucket.org/creachadair/shell v0.0.8
