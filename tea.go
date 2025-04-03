@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"bitbucket.org/creachadair/shell"
+	"github.com/creachadair/mds/shell"
 )
 
 var (
