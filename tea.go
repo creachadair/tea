@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"regexp/syntax"
+	"slices"
 	"strings"
 	"sync"
 
@@ -102,7 +103,7 @@ func main() {
 	}
 }
 
-func diag(msg string, args ...interface{}) {
+func diag(msg string, args ...any) {
 	if *doVerbose {
 		log.Printf(msg, args...)
 	}
@@ -134,12 +135,7 @@ func hasMulti(rt *syntax.Regexp) bool {
 	if rt.Flags != 0 && rt.Flags&syntax.OneLine == 0 {
 		return true
 	}
-	for _, sub := range rt.Sub {
-		if hasMulti(sub) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(rt.Sub, hasMulti)
 }
 
 // parseTrigger parses args as a trigger group consisting of a regexp pattern,
